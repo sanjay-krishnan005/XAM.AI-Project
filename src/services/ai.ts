@@ -17,7 +17,7 @@ export async function askGemini(context: string, question: string) {
   Confidence: [Score]%
   Citations: [List sources]`;
 
-  const safeContext = context.substring(0, 10000);
+  const safeContext = context.substring(0, 6000);
   const response = await groq.chat.completions.create({
     model,
     messages: [
@@ -53,7 +53,7 @@ Schema for each item in the "questions" array:
   "explanation": "string"
 }`;
 
-  const safeContext = context.substring(0, 10000);
+  const safeContext = context.substring(0, 6000);
   const response = await groq.chat.completions.create({
     model,
     response_format: { type: "json_object" },
