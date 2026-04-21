@@ -1,0 +1,140 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+    
+    function isOwner(userId) {
+      return isEmailVerified() && request.auth.uid == userId;
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.keys().hasAll(['name', 'xp', 'level', 'badges', 'createdAt', 'updatedAt']) &&
+               data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+               data.xp is int && data.xp >= 0 &&
+               data.level is int && data.level >= 1 &&
+               data.badges is list && data.badges.size() <= 50;
+      }
+
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow create: if isValidId(userId) && isOwner(userId) && isValidUser(incoming()) && 
+                    incoming().xp == 0 && incoming().level == 1 &&
+                    incoming().createdAt == request.time &&
+                    incoming().updatedAt == request.time;
+      allow update: if isValidId(userId) && isOwner(userId) && isValidUser(incoming()) &&
+                    incoming().createdAt == existing().createdAt &&
+                    incoming().updatedAt == request.time && (
+                      // Action: Update Profile
+                      incoming().diff(existing()).affectedKeys().hasOnly(['name', 'updatedAt']) ||
+                      // Action: Progression (xp/level)
+                      incoming().diff(existing()).affectedKeys().hasOnly(['xp', 'level', 'updatedAt']) ||
+                      // Action: Award Badges
+                      incoming().diff(existing()).affectedKeys().hasOnly(['badges', 'updatedAt'])
+                    );
+    }
+
+    // Documents Collection
+    match /documents/{docId} {
+      function isValidDoc(data) {
+        return data.keys().hasAll(['name', 'content', 'userId', 'createdAt']) &&
+               data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+               data.content is string && data.content.size() <= 1000000 &&
+               data.userId is string && data.userId == request.auth.uid;
+      }
+
+      allow list: if isEmailVerified() && resource.data.userId == request.auth.uid;
+      allow get: if isValidId(docId) && isEmailVerified() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(docId) && isEmailVerified() && isValidDoc(incoming()) && 
+                    incoming().createdAt == request.time;
+      allow delete: if isValidId(docId) && isEmailVerified() && resource.data.userId == request.auth.uid;
+    }
+
+    // Quiz Results Collection
+    match /quizResults/{resultId} {
+      function isValidQuizResult(data) {
+        return data.keys().hasAll(['score', 'topic', 'userId', 'date']) &&
+               data.score is int && data.score >= 0 && data.score <= 100 &&
+               data.topic is string && data.topic.size() <= 100 &&
+               data.userId is string && data.userId == request.auth.uid;
+      }
+
+      allow list: if isEmailVerified() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(resultId) && isEmailVerified() && isValidQuizResult(incoming()) && 
+                    incoming().date == request.time;
+    }
+
+    // Chat Sessions Collection
+    match /chatSessions/{sessionId} {
+      function isValidChatSession(data) {
+        return data.keys().hasAll(['title', 'userId', 'createdAt', 'updatedAt']) &&
+               data.title is string && data.title.size() <= 200 &&
+               data.userId is string && data.userId == request.auth.uid;
+      }
+
+      allow list: if isEmailVerified() && resource.data.userId == request.auth.uid;
+      allow get: if isValidId(sessionId) && isEmailVerified() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(sessionId) && isEmailVerified() && isValidChatSession(incoming()) &&
+                    incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isValidId(sessionId) && isEmailVerified() && resource.data.userId == request.auth.uid &&
+                    incoming().updatedAt == request.time &&
+                    incoming().diff(existing()).affectedKeys().hasOnly(['title', 'updatedAt']);
+      allow delete: if isValidId(sessionId) && isEmailVerified() && resource.data.userId == request.auth.uid;
+
+      match /messages/{messageId} {
+        function isValidMessage(data) {
+          return data.keys().hasAll(['text', 'sender', 'sessionId', 'createdAt']) &&
+                 data.text is string && data.text.size() <= 5000 &&
+                 data.sender in ['user', 'ai'] &&
+                 data.sessionId == sessionId;
+        }
+
+        allow list: if isOwner(get(/databases/$(database)/documents/chatSessions/$(sessionId)).data.userId);
+        allow create: if isValidId(messageId) && isOwner(get(/databases/$(database)/documents/chatSessions/$(sessionId)).data.userId) &&
+                      isValidMessage(incoming()) && incoming().createdAt == request.time;
+      }
+    }
+
+    // Study Groups Collection
+    match /studyGroups/{groupId} {
+      function isValidGroup(data) {
+        return data.keys().hasAll(['name', 'category', 'description', 'activeCount', 'createdAt']) &&
+               data.name is string && data.name.size() <= 100 &&
+               data.category is string &&
+               data.activeCount is int;
+      }
+
+      allow read: if isSignedIn();
+      allow create: if isValidId(groupId) && isEmailVerified() && isValidGroup(incoming()) &&
+                    incoming().createdAt == request.time;
+      // activeCount is updated by the server or users joining
+      allow update: if isValidId(groupId) && isSignedIn() && 
+                    incoming().diff(existing()).affectedKeys().hasOnly(['activeCount']);
+    }
+  }
+}
