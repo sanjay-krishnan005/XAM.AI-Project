@@ -1,10 +1,25 @@
 import React from 'react';
 import { useStore } from '../store/useStore';
-import { FileText, Zap, TrendingUp, Clock, Trophy } from 'lucide-react';
+import { FileText, Zap, TrendingUp, Clock, Trophy, Trash2 } from 'lucide-react';
 import { motion } from 'motion/react';
+import { deleteDocument } from '../lib/firebase';
 
 export default function Dashboard() {
-  const { documents, quizHistory, user } = useStore();
+  const { documents, quizHistory, user, deleteDocument: deleteFromStore } = useStore();
+
+  const handleDeleteDocument = async (docId: string, docName: string) => {
+    if (confirm(`Delete "${docName}"? This action cannot be undone.`)) {
+      try {
+        if (user) {
+          await deleteDocument(user.id, docName);
+        }
+        deleteFromStore(docId);
+      } catch (error) {
+        console.error('Failed to delete document:', error);
+        alert('Failed to delete document');
+      }
+    }
+  };
 
   const stats = [
     { label: 'Study XP', value: user?.xp || 0, icon: Zap, color: 'text-orange-500' },
@@ -59,19 +74,28 @@ export default function Dashboard() {
               documents.slice(-5).reverse().map((doc) => (
                 <div 
                   key={doc.id}
-                  className="bg-white/5 border border-white/10 p-5 rounded-2xl flex items-center justify-between group hover:bg-white/10 transition-all cursor-pointer shadow-lg backdrop-blur-sm"
+                  className="bg-white/5 border border-white/10 p-5 rounded-2xl flex items-center justify-between group hover:bg-white/10 transition-all shadow-lg backdrop-blur-sm"
                 >
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-indigo-500/10 rounded-xl flex items-center justify-center border border-indigo-500/20 group-hover:bg-indigo-500/20 transition-all">
+                  <div className="flex items-center gap-4 flex-1 min-w-0">
+                    <div className="w-12 h-12 bg-indigo-500/10 rounded-xl flex items-center justify-center border border-indigo-500/20 group-hover:bg-indigo-500/20 transition-all flex-shrink-0">
                       <FileText className="w-6 h-6 text-indigo-400" />
                     </div>
-                    <div>
-                      <div className="font-semibold text-white group-hover:text-indigo-300 transition-colors">{doc.name}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-white group-hover:text-indigo-300 transition-colors truncate">{doc.name}</div>
                       <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">{doc.content.length} VECTORS STORED</div>
                     </div>
                   </div>
-                  <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center border border-white/10 opacity-0 group-hover:opacity-100 transition-all">
-                    <Zap className="w-4 h-4 text-indigo-400" />
+                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0 ml-4">
+                    <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center border border-white/10">
+                      <Zap className="w-4 h-4 text-indigo-400" />
+                    </div>
+                    <button
+                      onClick={() => handleDeleteDocument(doc.id, doc.name)}
+                      className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center border border-red-500/30 hover:bg-red-500/40 transition-all hover:scale-110 active:scale-95"
+                      title="Delete material"
+                    >
+                      <Trash2 className="w-4 h-4 text-red-400" />
+                    </button>
                   </div>
                 </div>
               ))

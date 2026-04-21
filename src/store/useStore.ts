@@ -30,6 +30,7 @@ interface AppState {
   setDocuments: (docs: Document[]) => void;
   setQuizHistory: (history: QuizResult[]) => void;
   addDocument: (doc: Document) => void;
+  deleteDocument: (docId: string) => void;
   addQuizResult: (result: QuizResult) => void;
   addXp: (amount: number) => void;
 }
@@ -43,6 +44,9 @@ export const useStore = create<AppState>()(
     setDocuments: (documents) => set({ documents }),
     setQuizHistory: (quizHistory) => set({ quizHistory }),
     addDocument: (doc) => set((state) => ({ documents: [...state.documents, doc] })),
+    deleteDocument: (docId) => set((state) => ({
+      documents: state.documents.filter((doc) => doc.id !== docId)
+    })),
     addQuizResult: (result) => set((state) => ({ quizHistory: [...state.quizHistory, result] })),
     addXp: (amount) => set((state) => {
       if (!state.user) return state;

@@ -79,6 +79,15 @@ export const saveDocument = async (userId: string, document: { name: string; con
   });
 };
 
+export const deleteDocument = async (userId: string, documentName: string) => {
+  const q = query(collection(db, "documents"), where("userId", "==", userId), where("name", "==", documentName));
+  const snap = await getDocs(q);
+  
+  for (const docSnapshot of snap.docs) {
+    await deleteDoc(doc(db, "documents", docSnapshot.id));
+  }
+};
+
 // Chat Helpers
 export const createChatSession = async (userId: string, title: string) => {
   const sessionRef = await addDoc(collection(db, "chatSessions"), {
