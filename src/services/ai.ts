@@ -1,9 +1,12 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import Groq from "groq-sdk";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+const groq = new Groq({ 
+  apiKey: import.meta.env.VITE_GROQ_API_KEY || "", 
+  dangerouslyAllowBrowser: true 
+});
 
 export async function askGemini(context: string, question: string) {
-  const model = "gemini-3-flash-preview";
+  const model = "llama3-8b-8192";
   const systemInstruction = `You are an AI Education Assistant. Knowledge base is provided below. 
   Answer only based on the context. If the answer isn't in context, say you don't know based on the materials.
   Include source citations as [Source segment]. 
@@ -14,115 +17,136 @@ export async function askGemini(context: string, question: string) {
   Confidence: [Score]%
   Citations: [List sources]`;
 
-  const response = await ai.models.generateContent({
+  const response = await groq.chat.completions.create({
     model,
-    contents: `Context: ${context}\n\nQuestion: ${question}`,
-    config: { systemInstruction },
+    messages: [
+      { role: "system", content: systemInstruction },
+      { role: "user", content: `Context: ${context}\n\nQuestion: ${question}` }
+    ]
   });
 
-  return response.text;
+  return response.choices[0]?.message?.content || "";
 }
 
 export async function generateChatTitle(firstMessage: string) {
-  const model = "gemini-3-flash-preview";
-  const response = await ai.models.generateContent({
+  const model = "llama3-8b-8192";
+  const response = await groq.chat.completions.create({
     model,
-    contents: `Summarize this message into a short 2-4 word chat title: "${firstMessage}"`,
+    messages: [
+      { role: "user", content: `Summarize this message into a short 2-4 word chat title: "${firstMessage}"` }
+    ]
   });
 
-  return response.text?.replace(/["']/g, '').trim() || "New Chat";
+  return response.choices[0]?.message?.content?.replace(/["']/g, '').trim() || "New Chat";
 }
 
 export async function generateQuiz(context: string, difficulty: 'easy' | 'medium' | 'hard') {
-  const model = "gemini-3-flash-preview";
-  const response = await ai.models.generateContent({
+  const model = "llama3-8b-8192";
+  const systemPrompt = `You must return a valid JSON object. 
+Output a JSON object with a "questions" key containing exactly 5 multiple choice questions.
+Schema for each item in the "questions" array:
+{
+  "question": "string",
+  "options": ["string", "string", "string", "string"],
+  "correctAnswer": "string (must exactly match one option)",
+  "explanation": "string"
+}`;
+
+  const response = await groq.chat.completions.create({
     model,
-    contents: `Generate 5 multiple choice questions based on this text at ${difficulty} level: ${context}`,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            question: { type: Type.STRING },
-            options: { type: Type.ARRAY, items: { type: Type.STRING } },
-            correctAnswer: { type: Type.STRING },
-            explanation: { type: Type.STRING }
-          },
-          required: ["question", "options", "correctAnswer", "explanation"]
-        }
-      }
-    }
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: `Difficulty: ${difficulty}\n\nText: ${context}` }
+    ]
   });
 
-  return JSON.parse(response.text || "[]");
+  const text = response.choices[0]?.message?.content || "{}";
+  try {
+    const json = JSON.parse(text);
+    return json.questions || [];
+  } catch(e) {
+    console.error("Failed to parse quiz JSON:", e);
+    return [];
+  }
 }
 
 export async function evaluateAnswer(question: string, correctAnswer: string, userAnswer: string) {
-  const model = "gemini-3-flash-preview";
-  const systemInstruction = `You are an AI Grader. Use semantic similarity.
-  Provide feedback and a score 0-100.
-  If wrong, highlight why and provide the correct concept explanation.`;
+  const model = "llama3-8b-8192";
+  const systemPrompt = `You are an AI Grader. Evaluate using semantic similarity. Return a JSON object ONLY.
+Schema:
+{
+  "score": number (0-100),
+  "feedback": "string",
+  "isCorrect": boolean,
+  "conceptExplanation": "string"
+}`;
 
-  const response = await ai.models.generateContent({
+  const response = await groq.chat.completions.create({
     model,
-    contents: `Question: ${question}\nExpected: ${correctAnswer}\nUser: ${userAnswer}`,
-    config: {
-      systemInstruction,
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          score: { type: Type.NUMBER },
-          feedback: { type: Type.STRING },
-          isCorrect: { type: Type.BOOLEAN },
-          conceptExplanation: { type: Type.STRING }
-        },
-        required: ["score", "feedback", "isCorrect", "conceptExplanation"]
-      }
-    }
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: `Question: ${question}\nExpected: ${correctAnswer}\nUser: ${userAnswer}` }
+    ]
   });
 
-  return JSON.parse(response.text || "{}");
+  const text = response.choices[0]?.message?.content || "{}";
+  try {
+    return JSON.parse(text);
+  } catch(e) {
+    console.error("Failed to parse evaluation JSON:", e);
+    return {};
+  }
 }
 
 export async function extractQuestionFromImage(base64Image: string) {
-  const model = "gemini-3-flash-preview";
-  const response = await ai.models.generateContent({
+  const model = "llama-3.2-11b-vision-preview";
+  // Format as data URL if not already formatted
+  const formattedImage = base64Image.startsWith('data:') ? base64Image : `data:image/jpeg;base64,${base64Image}`;
+
+  const response = await groq.chat.completions.create({
     model,
-    contents: {
-      parts: [
-        { text: "Extract the question from this image and solve it step-by-step." },
-        { inlineData: { data: base64Image, mimeType: "image/jpeg" } }
-      ]
-    }
+    messages: [
+      { 
+        role: "user", 
+        content: [
+          { type: "text", text: "Extract the question from this image and solve it step-by-step." },
+          { type: "image_url", image_url: { url: formattedImage } }
+        ]
+      }
+    ]
   });
-  return response.text;
+  return response.choices[0]?.message?.content || "";
 }
 
 export async function generateFlashcards(context: string) {
-  const model = "gemini-3-flash-preview";
-  const response = await ai.models.generateContent({
+  const model = "llama3-8b-8192";
+  const systemPrompt = `You must return a valid JSON object. 
+Output a JSON object with a "flashcards" key containing an array of 8 flashcards.
+Schema for each item in the array:
+{
+  "front": "string (The term or question)",
+  "back": "string (The definition or answer)",
+  "hint": "string (A subtle hint)",
+  "category": "string"
+}`;
+
+  const response = await groq.chat.completions.create({
     model,
-    contents: `Generate 8 high-impact study flashcards based on this context: ${context}. Focus on definitions, key concepts, and critical relationships.`,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            front: { type: Type.STRING, description: "The term or question" },
-            back: { type: Type.STRING, description: "The definition or answer" },
-            hint: { type: Type.STRING, description: "A subtle hint for the cognitive link" },
-            category: { type: Type.STRING, description: "The conceptual category" }
-          },
-          required: ["front", "back", "hint", "category"]
-        }
-      }
-    }
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: `Generate 8 high-impact study flashcards based on this context: ${context}. Focus on definitions, key concepts, and critical relationships.` }
+    ]
   });
 
-  return JSON.parse(response.text || "[]");
+  const text = response.choices[0]?.message?.content || "{}";
+  try {
+    const json = JSON.parse(text);
+    return json.flashcards || [];
+  } catch(e) {
+    console.error("Failed to parse flashcards JSON:", e);
+    return [];
+  }
 }
