@@ -5,16 +5,41 @@ import axios from 'axios';
 import { motion } from 'motion/react';
 import { saveDocument } from '../lib/firebase';
 
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const ALLOWED_TYPES = ['application/pdf', 'text/plain', 'text/csv'];
+
 export default function Upload() {
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { addDocument, user } = useStore();
 
+  const validateFile = (file: File): string | null => {
+    // Check file size
+    if (file.size > MAX_FILE_SIZE) {
+      return `File is too large (${(file.size / 1024 / 1024).toFixed(2)}MB). Maximum allowed size is 10MB.`;
+    }
+
+    // Check file type
+    if (!ALLOWED_TYPES.includes(file.type) && !file.name.endsWith('.txt') && !file.name.endsWith('.pdf')) {
+      return 'Only PDF and text files are supported.';
+    }
+
+    return null;
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-      setError(null);
+      const selectedFile = e.target.files[0];
+      const validationError = validateFile(selectedFile);
+
+      if (validationError) {
+        setError(validationError);
+        setFile(null);
+      } else {
+        setFile(selectedFile);
+        setError(null);
+      }
     }
   };
 
@@ -28,7 +53,12 @@ export default function Upload() {
     formData.append('file', file);
 
     try {
-      const response = await axios.post('/api/extract-text', formData);
+      const response = await axios.post('/api/extract-text', formData, {
+        timeout: 60000, // 60 second timeout
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        }
+      });
       
       const docData = {
         name: file.name,
@@ -43,9 +73,21 @@ export default function Upload() {
       });
 
       setFile(null);
-    } catch (err) {
-      console.error(err);
-      setError('Failed to process file. Please try a smaller PDF or text file.');
+    } catch (err: any) {
+      console.error('Upload error:', err);
+      
+      // Provide specific error messages
+      if (err.response?.status === 413) {
+        setError('File is too large. Maximum size is 10MB.');
+      } else if (err.response?.status === 504) {
+        setError('Processing timed out. Please try with a smaller file.');
+      } else if (err.code === 'ECONNABORTED') {
+        setError('Upload timed out. Please try with a smaller file or a faster connection.');
+      } else if (err.response?.data?.error) {
+        setError(err.response.data.error);
+      } else {
+        setError('Failed to process file. Please try again.');
+      }
     } finally {
       setIsUploading(false);
     }

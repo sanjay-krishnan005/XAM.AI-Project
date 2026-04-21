@@ -33,64 +33,101 @@ async function startServer() {
     }
   });
 
-  const upload = multer({ dest: "uploads/" });
+  // File size limit: 10MB
+  const MAX_FILE_SIZE = 10 * 1024 * 1024;
+  const upload = multer({ 
+    dest: "uploads/",
+    limits: { fileSize: MAX_FILE_SIZE }
+  });
 
-  // Ensure uploads directory exists
-  if (!fs.existsSync("uploads")) {
+  // Ensure uploads directory exists (local development only)
+  if (process.env.NODE_ENV !== "production" && !fs.existsSync("uploads")) {
     fs.mkdirSync("uploads");
   }
 
   app.use(cors());
-  app.use(express.json());
+  app.use(express.json({ limit: "10mb" }));
+  app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
   console.log("Setting up API routes...");
   // API Routes
   app.post("/api/extract-text", upload.single("file"), async (req: any, res: any) => {
-    if (!req.file) {
-      return res.status(400).json({ error: "No file uploaded" });
-    }
+    // Set timeout for this request (45 seconds for Vercel Pro, 10 for free)
+    const timeoutMs = process.env.VERCEL ? 45000 : 120000;
+    const timeout = setTimeout(() => {
+      res.status(504).json({ error: "Request timeout. File too large or processing took too long." });
+    }, timeoutMs);
 
-    const filePath = req.file.path;
     try {
-      const dataBuffer = fs.readFileSync(filePath);
-      
-      let text = "";
-      if (req.file.mimetype === "application/pdf") {
-        try {
-          // pdf-parse 2.x+ (Mehmet Kozan version) uses a class based API
-          // Resolve standard fonts and CMaps path for PDFs with non-embedded fonts or special character sets
-          const fontsPath = path.join(process.cwd(), "node_modules/pdfjs-dist/standard_fonts/");
-          const cmapsPath = path.join(process.cwd(), "node_modules/pdfjs-dist/cmaps/");
-          const instance = new pdf(new Uint8Array(dataBuffer), {
-            standardFontDataUrl: fontsPath,
-            cMapUrl: cmapsPath,
-            cMapPacked: true
-          });
-          const result = await instance.getText();
-          text = typeof result === 'string' ? result : (result.text || "");
-        } catch (pdfError: any) {
-          console.warn("New PDF API failed, trying legacy style:", pdfError.message);
-          // Fallback just in case some other version is used
-          const result = await pdf(dataBuffer);
-          text = result.text || result;
-        }
-      } else {
-        text = dataBuffer.toString("utf-8");
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
       }
+
+      // Validate file size (double-check)
+      if (req.file.size > MAX_FILE_SIZE) {
+        return res.status(413).json({ error: "File too large. Maximum size is 10MB." });
+      }
+
+      const filePath = req.file.path;
       
-      res.json({ text });
-    } catch (error) {
-      console.error("Extraction error:", error);
-      res.status(500).json({ error: "Failed to extract text" });
+      try {
+        const dataBuffer = fs.readFileSync(filePath);
+        let text = "";
+
+        if (req.file.mimetype === "application/pdf") {
+          try {
+            const fontsPath = path.join(process.cwd(), "node_modules/pdfjs-dist/standard_fonts/");
+            const cmapsPath = path.join(process.cwd(), "node_modules/pdfjs-dist/cmaps/");
+            
+            // Limit pages to prevent memory issues (max 100 pages)
+            const instance = new pdf(new Uint8Array(dataBuffer), {
+              standardFontDataUrl: fontsPath,
+              cMapUrl: cmapsPath,
+              cMapPacked: true,
+              max: 100
+            });
+            
+            const result = await instance.getText();
+            text = typeof result === 'string' ? result : (result.text || "");
+
+            // Truncate if text is too large (max 500KB)
+            const MAX_TEXT_SIZE = 500 * 1024;
+            if (text.length > MAX_TEXT_SIZE) {
+              text = text.substring(0, MAX_TEXT_SIZE) + "\n[... truncated due to size limit ...]";
+            }
+          } catch (pdfError: any) {
+            console.warn("PDF parsing error:", pdfError.message);
+            throw new Error(`PDF parsing failed: ${pdfError.message}`);
+          }
+        } else if (req.file.mimetype === "text/plain" || req.file.mimetype === "text/csv") {
+          text = dataBuffer.toString("utf-8");
+          
+          // Truncate if text is too large
+          const MAX_TEXT_SIZE = 500 * 1024;
+          if (text.length > MAX_TEXT_SIZE) {
+            text = text.substring(0, MAX_TEXT_SIZE) + "\n[... truncated due to size limit ...]";
+          }
+        } else {
+          return res.status(400).json({ error: "Unsupported file type. Only PDF and text files allowed." });
+        }
+
+        res.json({ text });
+      } finally {
+        // Cleanup
+        if (fs.existsSync(filePath)) {
+          try {
+            fs.unlinkSync(filePath);
+          } catch (unlinkError) {
+            console.error("File cleanup error:", unlinkError);
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error("File extraction error:", error);
+      const errorMsg = error.message || "Failed to process file";
+      res.status(500).json({ error: `Failed to process file: ${errorMsg}` });
     } finally {
-      // Cleanup
-      if (fs.existsSync(filePath)) {
-        try {
-          fs.unlinkSync(filePath);
-        } catch (unlinkError) {
-          console.error("Cleanup error:", unlinkError);
-        }
-      }
+      clearTimeout(timeout);
     }
   });
 
