@@ -64,8 +64,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (file.mimetype === 'application/pdf') {
       try {
-        const pdfParse = await import('pdf-parse');
-        const pdfParseFn = pdfParse.default || pdfParse;
+        const pdfParseModule = await import('pdf-parse/lib/pdf-parse.js');
+        const pdfParseFn = pdfParseModule.default || pdfParseModule;
         const data = await pdfParseFn(buffer, { max: 100 });
         text = data.text || '';
       } catch (pdfError: any) {
