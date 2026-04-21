@@ -1,18 +1,22 @@
+// Polyfill browser globals needed by pdfjs-dist (used internally by pdf-parse)
+// These don't exist in Node.js serverless environments
+if (typeof globalThis.DOMMatrix === 'undefined') {
+  (globalThis as any).DOMMatrix = class DOMMatrix {
+    constructor() { return Object.create(null); }
+  };
+}
+if (typeof globalThis.Path2D === 'undefined') {
+  (globalThis as any).Path2D = class Path2D {
+    constructor() { return Object.create(null); }
+  };
+}
+
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 
 const MAX_TEXT_SIZE = 500 * 1024; // 500KB
-
-// Vercel free tier body limit is 4.5MB
-// We handle raw body parsing manually since multer can be unreliable in serverless
-
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
 
 function parseMultipart(body: Buffer, boundary: string) {
   const boundaryBuffer = Buffer.from(`--${boundary}`);
@@ -59,15 +63,6 @@ function parseMultipart(body: Buffer, boundary: string) {
   return parts;
 }
 
-function getRawBody(req: VercelRequest): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
-}
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -90,7 +85,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Invalid content type. Expected multipart/form-data.' });
     }
 
-    const rawBody = await getRawBody(req);
+    // Vercel auto-parses the body — req.body is a Buffer for multipart/form-data
+    let rawBody: Buffer;
+    if (Buffer.isBuffer(req.body)) {
+      rawBody = req.body;
+    } else if (typeof req.body === 'string') {
+      rawBody = Buffer.from(req.body, 'binary');
+    } else {
+      // Fallback: try reading from stream
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) {
+        chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+      }
+      rawBody = Buffer.concat(chunks);
+    }
+
+    if (!rawBody || rawBody.length === 0) {
+      return res.status(400).json({ error: 'Empty request body' });
+    }
+
     const parts = parseMultipart(rawBody, boundaryMatch[1]);
     const filePart = parts.find((p) => p.name === 'file');
 
