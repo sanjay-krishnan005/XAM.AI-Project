@@ -6,7 +6,7 @@ const groq = new Groq({
 });
 
 export async function askGemini(context: string, question: string) {
-  const model = "llama3-8b-8192";
+  const model = "llama-3.1-8b-instant";
   const systemInstruction = `You are an AI Education Assistant. Knowledge base is provided below. 
   Answer only based on the context. If the answer isn't in context, say you don't know based on the materials.
   Include source citations as [Source segment]. 
@@ -29,7 +29,7 @@ export async function askGemini(context: string, question: string) {
 }
 
 export async function generateChatTitle(firstMessage: string) {
-  const model = "llama3-8b-8192";
+  const model = "llama-3.1-8b-instant";
   const response = await groq.chat.completions.create({
     model,
     messages: [
@@ -41,7 +41,7 @@ export async function generateChatTitle(firstMessage: string) {
 }
 
 export async function generateQuiz(context: string, difficulty: 'easy' | 'medium' | 'hard') {
-  const model = "llama3-8b-8192";
+  const model = "llama-3.1-8b-instant";
   const systemPrompt = `You must return a valid JSON object. 
 Output a JSON object with a "questions" key containing exactly 5 multiple choice questions.
 Schema for each item in the "questions" array:
@@ -72,7 +72,7 @@ Schema for each item in the "questions" array:
 }
 
 export async function evaluateAnswer(question: string, correctAnswer: string, userAnswer: string) {
-  const model = "llama3-8b-8192";
+  const model = "llama-3.1-8b-instant";
   const systemPrompt = `You are an AI Grader. Evaluate using semantic similarity. Return a JSON object ONLY.
 Schema:
 {
@@ -121,7 +121,7 @@ export async function extractQuestionFromImage(base64Image: string) {
 }
 
 export async function generateFlashcards(context: string) {
-  const model = "llama3-8b-8192";
+  const model = "llama-3.1-8b-instant";
   const systemPrompt = `You must return a valid JSON object. 
 Output a JSON object with a "flashcards" key containing an array of 8 flashcards.
 Schema for each item in the array:
