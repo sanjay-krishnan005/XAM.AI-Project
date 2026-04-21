@@ -64,25 +64,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (file.mimetype === 'application/pdf') {
       try {
-        // Dynamic import to avoid bundling issues on Vercel
-        const pdfParseModule = await import('pdf-parse');
-        const pdfParse = pdfParseModule.default || pdfParseModule;
-
-        if (typeof pdfParse === 'function') {
-          // pdf-parse v1 API: pdfParse(buffer) → { text, numpages, ... }
-          const data = await pdfParse(buffer);
-          text = typeof data === 'string' ? data : (data.text || '');
-        } else if (pdfParse.PDFParse || pdfParse.default) {
-          // pdf-parse v2 API: new PDFParse(data, options) → .getText()
-          const PDFParse = pdfParse.PDFParse || pdfParse.default;
-          const instance = new PDFParse(new Uint8Array(buffer), { max: 100 });
-          const result = await instance.getText();
-          text = typeof result === 'string' ? result : (result.text || '');
-        } else {
-          // Fallback: try calling it directly
-          const data = await pdfParse(buffer);
-          text = typeof data === 'string' ? data : (data.text || '');
-        }
+        const pdfParse = await import('pdf-parse');
+        const pdfParseFn = pdfParse.default || pdfParse;
+        const data = await pdfParseFn(buffer, { max: 100 });
+        text = data.text || '';
       } catch (pdfError: any) {
         console.error('PDF parsing error:', pdfError);
         return res.status(400).json({ error: 'Failed to parse PDF: ' + pdfError.message });
