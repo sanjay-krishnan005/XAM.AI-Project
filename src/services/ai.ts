@@ -17,11 +17,12 @@ export async function askGemini(context: string, question: string) {
   Confidence: [Score]%
   Citations: [List sources]`;
 
+  const safeContext = context.substring(0, 10000);
   const response = await groq.chat.completions.create({
     model,
     messages: [
       { role: "system", content: systemInstruction },
-      { role: "user", content: `Context: ${context}\n\nQuestion: ${question}` }
+      { role: "user", content: `Context: ${safeContext}\n\nQuestion: ${question}` }
     ]
   });
 
@@ -52,12 +53,13 @@ Schema for each item in the "questions" array:
   "explanation": "string"
 }`;
 
+  const safeContext = context.substring(0, 10000);
   const response = await groq.chat.completions.create({
     model,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: systemPrompt },
-      { role: "user", content: `Difficulty: ${difficulty}\n\nText: ${context}` }
+      { role: "user", content: `Difficulty: ${difficulty}\n\nText: ${safeContext}` }
     ]
   });
 
@@ -132,12 +134,13 @@ Schema for each item in the array:
   "category": "string"
 }`;
 
+  const safeContext = context.substring(0, 10000);
   const response = await groq.chat.completions.create({
     model,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: systemPrompt },
-      { role: "user", content: `Generate 8 high-impact study flashcards based on this context: ${context}. Focus on definitions, key concepts, and critical relationships.` }
+      { role: "user", content: `Generate 8 high-impact study flashcards based on this context: ${safeContext}. Focus on definitions, key concepts, and critical relationships.` }
     ]
   });
 
