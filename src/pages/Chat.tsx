@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore } from '../store/useStore';
-import { askGemini, generateChatTitle } from '../services/ai';
 import { createChatSession, getChatSessions, saveChatMessage, getChatMessages, deleteChatSession } from '../lib/firebase';
-import { Send, Bot, User, Loader2, Sparkles, AlertCircle, MessageSquare, Plus, History, Trash2, ChevronRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Send, Bot, User, Loader2, Sparkles, AlertCircle, MessageSquare, Plus, History, Trash2, ChevronRight, PanelLeftClose, PanelLeftOpen, Image as ImageIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
+import { askGemini, generateChatTitle, extractQuestionFromImage } from '../services/ai';
 
 export default function Chat() {
   const { documents, user } = useStore();
@@ -13,8 +13,10 @@ export default function Chat() {
   const [messages, setMessages] = useState<{ sender: 'ai' | 'user', text: string }[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   // Load session list on mount
   useEffect(() => {
@@ -61,6 +63,33 @@ export default function Chat() {
       startNewChat();
     }
     loadSessions();
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      if (file.size > 5 * 1024 * 1024) {
+        alert("Image too large. Max 5MB.");
+        return;
+      }
+
+      setIsProcessingImage(true);
+      try {
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          const base64 = event.target?.result as string;
+          const extractedText = await extractQuestionFromImage(base64);
+          if (extractedText) {
+            setInput(prev => prev ? `${prev}\n\n${extractedText}` : extractedText);
+          }
+        };
+        reader.readAsDataURL(file);
+      } catch (error) {
+        console.error("Image processing failed:", error);
+      } finally {
+        setIsProcessingImage(false);
+      }
+    }
   };
 
   const handleSend = async () => {
@@ -229,6 +258,14 @@ export default function Chat() {
                 </div>
               </motion.div>
             )}
+            {isProcessingImage && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
+                <div className="bg-indigo-500/10 border border-indigo-500/20 p-5 rounded-[2rem] rounded-tl-none flex items-center gap-4">
+                  <ImageIcon className="w-5 h-5 animate-pulse text-indigo-400" />
+                  <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest italic">Extracting Question from Image...</span>
+                </div>
+              </motion.div>
+            )}
           </AnimatePresence>
         </div>
 
@@ -236,12 +273,26 @@ export default function Chat() {
         <div className="p-8 bg-white/5 border-t border-white/10 backdrop-blur-xl">
           <div className="relative group max-w-4xl mx-auto w-full">
             <input
+              type="file"
+              ref={imageInputRef}
+              onChange={handleImageUpload}
+              accept="image/*"
+              className="hidden"
+            />
+            <button
+              onClick={() => imageInputRef.current?.click()}
+              className="absolute left-3 top-3 bottom-3 text-slate-500 hover:text-indigo-400 p-2 rounded-xl transition-colors z-10"
+              title="Upload image for OCR"
+            >
+              <ImageIcon className="w-5 h-5" />
+            </button>
+            <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && handleSend()}
               placeholder={documents.length === 0 ? "Upload materials to unlock tutor..." : "Synthesize your query..."}
-              className="w-full bg-white/5 border border-white/10 rounded-[2rem] py-5 px-8 pr-20 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:ring-4 focus:ring-indigo-500/20 transition-all outline-none shadow-inner"
+              className="w-full bg-white/5 border border-white/10 rounded-[2rem] py-5 px-16 pr-20 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:ring-4 focus:ring-indigo-500/20 transition-all outline-none shadow-inner"
             />
             <button
               onClick={handleSend}

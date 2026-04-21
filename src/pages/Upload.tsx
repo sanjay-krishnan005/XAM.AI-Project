@@ -11,6 +11,7 @@ const ALLOWED_TYPES = ['application/pdf', 'text/plain', 'text/csv'];
 export default function Upload() {
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { addDocument, user } = useStore();
 
@@ -39,6 +40,7 @@ export default function Upload() {
       } else {
         setFile(selectedFile);
         setError(null);
+        setProgress(null);
       }
     }
   };
@@ -68,6 +70,7 @@ export default function Upload() {
 
     setIsUploading(true);
     setError(null);
+    setProgress(null);
 
     try {
       let extractedText = '';
@@ -78,12 +81,17 @@ export default function Upload() {
         const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
         const pdf = await loadingTask.promise;
         
-        for (let i = 1; i <= pdf.numPages; i++) {
+        const totalPages = pdf.numPages;
+        setProgress({ current: 0, total: totalPages });
+
+        for (let i = 1; i <= totalPages; i++) {
           const page = await pdf.getPage(i);
           const content = await page.getTextContent();
           const pageText = content.items.map((it: any) => it.str).join(' ');
           extractedText += pageText + '\n\n';
           
+          setProgress({ current: i, total: totalPages });
+
           // Safety limit (2MB of raw text is massive, approx 1000 pages)
           if (extractedText.length > 2 * 1024 * 1024) {
             extractedText = extractedText.substring(0, 2 * 1024 * 1024) + '\n[... truncated due to extreme size ...]';
@@ -108,6 +116,7 @@ export default function Upload() {
       });
 
       setFile(null);
+      setProgress(null);
     } catch (err: any) {
       console.error('Upload/Extraction error:', err);
       setError('Failed to process file locally. Please try again.');
@@ -163,14 +172,37 @@ export default function Upload() {
               <button 
                 onClick={handleUpload}
                 disabled={isUploading}
-                className="bg-indigo-600 text-white px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-indigo-500 hover:shadow-[0_0_20px_rgba(79,70,229,0.4)] transition-all disabled:opacity-50 active:scale-95"
+                className="bg-indigo-600 text-white px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-indigo-500 hover:shadow-[0_0_20px_rgba(79,70,229,0.4)] transition-all disabled:opacity-50 active:scale-95 flex items-center gap-2"
               >
                 {isUploading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    {progress ? `${Math.round((progress.current / progress.total) * 100)}%` : 'Ingesting...'}
+                  </>
                 ) : (
                   'Ingest'
                 )}
               </button>
+            </motion.div>
+          )}
+
+          {progress && isUploading && (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="w-full space-y-2"
+            >
+              <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-slate-500">
+                <span>Neural Extraction Progress</span>
+                <span>Page {progress.current} of {progress.total}</span>
+              </div>
+              <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden border border-white/10">
+                <motion.div 
+                  className="h-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.5)]"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${(progress.current / progress.total) * 100}%` }}
+                />
+              </div>
             </motion.div>
           )}
 
