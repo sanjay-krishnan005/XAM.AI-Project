@@ -5,7 +5,7 @@ import axios from 'axios';
 import { motion } from 'motion/react';
 import { saveDocument } from '../lib/firebase';
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB (Vercel payload limit is 4.5MB)
 const ALLOWED_TYPES = ['application/pdf', 'text/plain', 'text/csv'];
 
 export default function Upload() {
@@ -17,7 +17,7 @@ export default function Upload() {
   const validateFile = (file: File): string | null => {
     // Check file size
     if (file.size > MAX_FILE_SIZE) {
-      return `File is too large (${(file.size / 1024 / 1024).toFixed(2)}MB). Maximum allowed size is 10MB.`;
+      return `File is too large (${(file.size / 1024 / 1024).toFixed(2)}MB). Maximum allowed size is 4MB.`;
     }
 
     // Check file type
@@ -78,7 +78,7 @@ export default function Upload() {
       
       // Provide specific error messages
       if (err.response?.status === 413) {
-        setError('File is too large. Maximum size is 10MB.');
+        setError('File is too large. Maximum size is 4MB.');
       } else if (err.response?.status === 504) {
         setError('Processing timed out. Please try with a smaller file.');
       } else if (err.code === 'ECONNABORTED') {

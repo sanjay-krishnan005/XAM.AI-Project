@@ -10,7 +10,7 @@ export const config = {
   },
 };
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB (Vercel payload limit is 4.5MB)
 const MAX_TEXT_SIZE = 500 * 1024; // 500KB
 
 // Use memory storage — no filesystem writes needed, works in serverless
@@ -49,7 +49,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await runMulter(req, res);
     } catch (multerErr: any) {
       if (multerErr.code === 'LIMIT_FILE_SIZE') {
-        return res.status(413).json({ error: 'File too large. Maximum size is 10MB.' });
+        return res.status(413).json({ error: 'File too large. Maximum size is 4MB.' });
       }
       return res.status(400).json({ error: 'File upload error: ' + multerErr.message });
     }
