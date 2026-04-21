@@ -86,23 +86,6 @@ export default function Upload() {
       } else if (err.response?.data?.error) {
         setError(err.response.data.error);
       } else {
-        // Fallback: try client-side extraction for PDFs if server API fails (useful on limited hosting)
-        if (file.type === 'application/pdf') {
-          try {
-            const text = await extractTextFromPDFInBrowser(file, 5);
-            const docData = { name: file.name, content: text };
-            await saveDocument(user.id, docData);
-            addDocument({ id: Math.random().toString(36).substr(2, 9), ...docData });
-            setFile(null);
-            setError(null);
-            return;
-          } catch (browserErr) {
-            console.error('Client-side PDF extraction failed:', browserErr);
-            setError('Failed to process file. Please try again or use a different host.');
-            return;
-          }
-        }
-
         setError('Failed to process file. Please try again.');
       }
     } finally {
@@ -110,30 +93,6 @@ export default function Upload() {
     }
   };
 
-  // Client-side PDF text extraction using pdfjs-dist (fallback when server is unavailable)
-  const extractTextFromPDFInBrowser = async (file: File, maxPages = 5): Promise<string> => {
-    const arrayBuffer = await file.arrayBuffer();
-    const pdfjs = await import('pdfjs-dist/legacy/build/pdf');
-    // Worker not needed for small client-side extraction; use default
-    const loadingTask = pdfjs.getDocument({ data: arrayBuffer });
-    const pdf = await loadingTask.promise;
-    const pageCount = Math.min(pdf.numPages, maxPages);
-    let fullText = '';
-
-    for (let i = 1; i <= pageCount; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      const pageText = content.items.map((it: any) => it.str).join(' ');
-      fullText += pageText + '\n\n';
-      // Quick bail-out if text is already large
-      if (fullText.length > 200 * 1024) {
-        fullText = fullText.substring(0, 200 * 1024) + '\n\n[Truncated]';
-        break;
-      }
-    }
-
-    return fullText;
-  };
 
   return (
     <div className="max-w-2xl mx-auto space-y-12">
