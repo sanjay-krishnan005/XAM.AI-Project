@@ -5,7 +5,7 @@ import axios from 'axios';
 import { motion } from 'motion/react';
 import { saveDocument } from '../lib/firebase';
 
-const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB (Vercel payload limit is 4.5MB)
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB - Client-side processing allows large files
 const ALLOWED_TYPES = ['application/pdf', 'text/plain', 'text/csv'];
 
 export default function Upload() {
@@ -17,7 +17,7 @@ export default function Upload() {
   const validateFile = (file: File): string | null => {
     // Check file size
     if (file.size > MAX_FILE_SIZE) {
-      return `File is too large (${(file.size / 1024 / 1024).toFixed(2)}MB). Maximum allowed size is 4MB.`;
+      return `File is too large (${(file.size / 1024 / 1024).toFixed(2)}MB). Maximum allowed size is 50MB.`;
     }
 
     // Check file type
@@ -43,26 +43,61 @@ export default function Upload() {
     }
   };
 
+  // Helper to dynamically load pdf.js from CDN to avoid Vite build/bundling issues
+  const loadPdfJs = async (): Promise<any> => {
+    if ((window as any).pdfjsLib) return (window as any).pdfjsLib;
+    
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      script.onload = () => {
+        if ((window as any).pdfjsLib) {
+          (window as any).pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+          resolve((window as any).pdfjsLib);
+        } else {
+          reject(new Error('pdfjsLib not found on window'));
+        }
+      };
+      script.onerror = () => reject(new Error('Failed to load pdf.js from CDN'));
+      document.body.appendChild(script);
+    });
+  };
+
   const handleUpload = async () => {
     if (!file || !user) return;
 
     setIsUploading(true);
     setError(null);
 
-    const formData = new FormData();
-    formData.append('file', file);
-
     try {
-      const response = await axios.post('/api/extract-text', formData, {
-        timeout: 60000, // 60 second timeout
-        headers: {
-          'Content-Type': 'multipart/form-data',
+      let extractedText = '';
+
+      if (file.type === 'application/pdf') {
+        const pdfjsLib = await loadPdfJs();
+        const arrayBuffer = await file.arrayBuffer();
+        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+        const pdf = await loadingTask.promise;
+        
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          const pageText = content.items.map((it: any) => it.str).join(' ');
+          extractedText += pageText + '\n\n';
+          
+          // Safety limit (2MB of raw text is massive, approx 1000 pages)
+          if (extractedText.length > 2 * 1024 * 1024) {
+            extractedText = extractedText.substring(0, 2 * 1024 * 1024) + '\n[... truncated due to extreme size ...]';
+            break;
+          }
         }
-      });
+      } else {
+        // Plain text or CSV
+        extractedText = await file.text();
+      }
       
       const docData = {
         name: file.name,
-        content: response.data.text,
+        content: extractedText,
       };
 
       await saveDocument(user.id, docData);
@@ -74,20 +109,8 @@ export default function Upload() {
 
       setFile(null);
     } catch (err: any) {
-      console.error('Upload error:', err);
-      
-      // Provide specific error messages
-      if (err.response?.status === 413) {
-        setError('File is too large. Maximum size is 4MB.');
-      } else if (err.response?.status === 504) {
-        setError('Processing timed out. Please try with a smaller file.');
-      } else if (err.code === 'ECONNABORTED') {
-        setError('Upload timed out. Please try with a smaller file or a faster connection.');
-      } else if (err.response?.data?.error) {
-        setError(err.response.data.error);
-      } else {
-        setError('Failed to process file. Please try again.');
-      }
+      console.error('Upload/Extraction error:', err);
+      setError('Failed to process file locally. Please try again.');
     } finally {
       setIsUploading(false);
     }
