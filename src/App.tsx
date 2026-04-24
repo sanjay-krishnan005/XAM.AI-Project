@@ -31,6 +31,7 @@ import Quiz from './pages/Quiz';
 import Groups from './pages/Groups';
 import Analytics from './pages/Analytics';
 import Flashcards from './pages/Flashcards';
+import FloatingAI from './components/FloatingAI';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -134,6 +135,7 @@ export default function App() {
              <p className="text-[10px] text-slate-500 uppercase tracking-[0.4em] font-black">Firebase Enterprise Security Active</p>
           </div>
         </motion.div>
+        <FloatingAI />
       </div>
     );
   }
@@ -243,6 +245,7 @@ export default function App() {
           </div>
         </main>
       </div>
+      <FloatingAI />
     </div>
   );
 }

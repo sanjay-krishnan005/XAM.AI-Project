@@ -18,6 +18,35 @@ export default function Chat() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
+  // Build context from all documents with their summaries
+  const getCombinedContext = () => {
+    if (documents.length === 0) return "";
+    
+    // First, include all summaries for overview
+    const summariesContext = documents.map(doc => {
+      const summary = doc.summary ? `${doc.summary}` : '';
+      const topics = doc.keyTopics?.length ? `Topics: ${doc.keyTopics.join(', ')}` : '';
+      return `[${doc.name}]\n${summary}\n${topics}`;
+    }).join('\n\n---\n\n');
+    
+    // If only 1 doc and it's short, use full content
+    if (documents.length === 1 && documents[0].content.length < 4000) {
+      return `=== ${documents[0].name} ===\n\n${documents[0].content}`;
+    }
+    
+    // Multiple docs: combine summaries + limited content from each
+    const docsWithContent = documents.map(doc => {
+      const summary = doc.summary ? `${doc.summary}\n` : '';
+      // Take first 1500 chars of content per doc as "preview"
+      const preview = doc.content.length > 1500 
+        ? doc.content.substring(0, 1500) + '\n[...content truncated...]'
+        : doc.content;
+      return `=== ${doc.name} ===\n${summary}Content Preview:\n${preview}`;
+    }).join('\n\n---\n\n');
+    
+    return docsWithContent;
+  };
+
   // Load session list on mount
   useEffect(() => {
     if (user) {
@@ -124,7 +153,7 @@ export default function Chat() {
       // Save user message
       await saveChatMessage(currentSessionId, userMsg, 'user');
 
-      const context = documents.map(d => d.content).join('\n\n');
+      const context = getCombinedContext();
       const response = await askGemini(context, userMsg);
       const aiResponse = response || "I'm sorry, I couldn't process that.";
       
@@ -208,7 +237,7 @@ export default function Chat() {
               <div className="font-black text-white tracking-tight uppercase text-sm">Neural Tutor v3</div>
               <div className="text-[10px] text-indigo-400 font-bold flex items-center gap-1.5 uppercase tracking-widest mt-0.5">
                 <div className="w-2 h-2 bg-indigo-400 rounded-full animate-pulse shadow-[0_0_8px_rgba(129,140,248,0.8)]" />
-                Connected to {documents.length} Vectors
+                Synced {documents.length} Document{documents.length !== 1 ? 's' : ''}
               </div>
             </div>
           </div>
@@ -291,7 +320,7 @@ export default function Chat() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-              placeholder={documents.length === 0 ? "Upload materials to unlock tutor..." : "Synthesize your query..."}
+              placeholder={documents.length === 0 ? "Upload materials to unlock tutor..." : `Ask about your ${documents.length} document${documents.length !== 1 ? 's' : ''}...`}
               className="w-full bg-white/5 border border-white/10 rounded-[2rem] py-5 px-16 pr-20 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:ring-4 focus:ring-indigo-500/20 transition-all outline-none shadow-inner"
             />
             <button

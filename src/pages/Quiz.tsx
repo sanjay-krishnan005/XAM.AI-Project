@@ -1,19 +1,21 @@
 import React, { useState } from 'react';
 import { useStore } from '../store/useStore';
-import { generateQuiz, evaluateAnswer } from '../services/ai';
-import { Brain, CheckCircle2, XCircle, ChevronRight, Loader2, Award, Info } from 'lucide-react';
+import { generateQuiz, evaluateAnswer, generateRecommendations } from '../services/ai';
+import { Brain, CheckCircle2, XCircle, ChevronRight, Loader2, Award, Info, Sparkles, BookOpen, Target, TrendingUp, Heart, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { saveQuizResult, db } from '../lib/firebase';
 import { doc, updateDoc, increment, serverTimestamp } from 'firebase/firestore';
 
 export default function Quiz() {
-  const { documents, addQuizResult, addXp, user } = useStore();
+  const { documents, addQuizResult, addXp, user, setRecommendations, clearRecommendations, recommendations, studyPlan, motivation } = useStore();
   const [stage, setStage] = useState<'config' | 'loading' | 'active' | 'results'>('config');
+  const [recLoading, setRecLoading] = useState(false);
   const [questions, setQuestions] = useState<any[]>([]);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [userAnswers, setUserAnswers] = useState<any[]>([]);
   const [evaluation, setEvaluation] = useState<any>(null);
   const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
+  const [recStage, setRecStage] = useState<'results_only' | 'recommendations'>('results_only');
 
   const startQuiz = async () => {
     if (documents.length === 0) return;
@@ -31,7 +33,7 @@ export default function Quiz() {
     }
   };
 
-  const handleAnswerSelect = async (option: string) => {
+const handleAnswerSelect = async (option: string) => {
     const isCorrect = option === questions[currentIdx].correctAnswer;
     const newUserAnswers = [...userAnswers, { option, isCorrect }];
     setUserAnswers(newUserAnswers);
@@ -50,7 +52,6 @@ export default function Quiz() {
 
       await saveQuizResult(user.id, resData);
       
-      // Update User XP and Level in Firestore
       const userRef = doc(db, "users", user.id);
       const newXp = user.xp + xpGained;
       const newLevel = Math.floor(newXp / 1000) + 1;
@@ -67,6 +68,21 @@ export default function Quiz() {
         date: new Date().toISOString()
       });
       addXp(xpGained);
+      
+      setRecLoading(true);
+      try {
+        const recData = await generateRecommendations(score, questions, newUserAnswers, user.level);
+        if (recData.recommendations) {
+          setRecommendations(
+            recData.recommendations,
+            recData.studyPlan || { focusAreas: [], suggestedDuration: '15-20 minutes', nextQuizDifficulty: 'medium' },
+            recData.motivation || "Great effort! Keep learning!"
+          );
+        }
+      } catch (err) {
+        console.error("Failed to generate recommendations:", err);
+      }
+      setRecLoading(false);
       setStage('results');
     }
   };
@@ -127,6 +143,25 @@ export default function Quiz() {
 
   if (stage === 'results') {
     const finalScore = Math.round(userAnswers.filter(a => a.isCorrect).length / questions.length * 100);
+    
+    const getPriorityColor = (priority: string) => {
+      switch (priority) {
+        case 'high': return 'border-red-500/30 bg-red-500/5';
+        case 'medium': return 'border-amber-500/30 bg-amber-500/5';
+        default: return 'border-emerald-500/30 bg-emerald-500/5';
+      }
+    };
+
+    const getIcon = (type: string) => {
+      switch (type) {
+        case 'flashcard': return <Brain className="w-5 h-5 text-fuchsia-400" />;
+        case 'review': return <BookOpen className="w-5 h-5 text-indigo-400" />;
+        case 'practice': return <Target className="w-5 h-5 text-amber-400" />;
+        case 'next_level': return <TrendingUp className="w-5 h-5 text-emerald-400" />;
+        default: return <Sparkles className="w-5 h-5 text-indigo-400" />;
+      }
+    };
+
     return (
       <div className="max-w-3xl mx-auto space-y-12">
         <div className="bg-white/5 border border-white/10 p-12 rounded-[3.5rem] backdrop-blur-xl text-center space-y-8 shadow-2xl relative overflow-hidden">
@@ -139,13 +174,99 @@ export default function Quiz() {
             <p className="text-slate-500 font-bold uppercase tracking-[0.2em] text-[10px]">Matrix sync yield: <span className="text-indigo-400">+{finalScore * 2} XP</span> processed.</p>
           </div>
           <div className="text-8xl font-black text-white tracking-tighter drop-shadow-[0_0_20px_rgba(255,255,255,0.2)]">{finalScore}%</div>
-          <button 
-            onClick={() => setStage('config')}
-            className="w-full bg-white text-neutral-950 py-5 rounded-[2.5rem] font-bold uppercase tracking-[0.2em] text-xs hover:shadow-2xl transition-all shadow-white/5 active:scale-95"
-          >
-            Review & Continue Path
-          </button>
+          
+          <div className="flex gap-4">
+            <button 
+              onClick={() => { clearRecommendations(); setStage('config'); }}
+              className="flex-1 bg-white/10 border border-white/20 text-white py-4 rounded-[2rem] font-bold uppercase tracking-[0.2em] text-xs hover:bg-white/20 transition-all"
+            >
+              Review & Continue
+            </button>
+            <button 
+              onClick={() => setRecStage('recommendations')}
+              disabled={recLoading}
+              className="flex-1 bg-indigo-600 text-white py-4 rounded-[2rem] font-bold uppercase tracking-[0.2em] text-xs hover:bg-indigo-500 transition-all flex items-center justify-center gap-2"
+            >
+              {recLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              View Recommendations
+            </button>
+          </div>
         </div>
+
+        {recStage === 'recommendations' && recommendations.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-8"
+          >
+            <div className="bg-gradient-to-br from-indigo-500/10 to-fuchsia-500/10 border border-white/10 p-8 rounded-[3rem] backdrop-blur-xl">
+              <h3 className="text-2xl font-black text-white uppercase tracking-tighter flex items-center gap-3 mb-6">
+                <Sparkles className="w-6 h-6 text-indigo-400" />
+                Your Learning Path
+              </h3>
+              
+              <div className="space-y-4">
+                {recommendations.map((rec, i) => (
+                  <div 
+                    key={i} 
+                    className={`p-6 rounded-[2rem] border ${getPriorityColor(rec.priority)} transition-all hover:scale-[1.02]`}
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center">
+                        {getIcon(rec.type)}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`text-[10px] font-black uppercase tracking-[0.2em] px-2 py-1 rounded-full ${
+                            rec.priority === 'high' ? 'bg-red-500/20 text-red-400' :
+                            rec.priority === 'medium' ? 'bg-amber-500/20 text-amber-400' :
+                            'bg-emerald-500/20 text-emerald-400'
+                          }`}>
+                            {rec.priority} Priority
+                          </span>
+                        </div>
+                        <h4 className="text-lg font-bold text-white mb-1">{rec.title}</h4>
+                        <p className="text-slate-400 text-sm">{rec.description}</p>
+                        <p className="text-indigo-300 text-xs mt-2 font-medium">{rec.action}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {studyPlan && (
+                <div className="mt-6 p-6 bg-white/5 rounded-[2rem] border border-white/10">
+                  <h4 className="text-sm font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Study Plan</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex items-center gap-3">
+                      <Clock className="w-5 h-5 text-amber-400" />
+                      <div>
+                        <div className="text-[10px] text-slate-500 uppercase">Duration</div>
+                        <div className="text-sm font-bold text-white">{studyPlan.suggestedDuration}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <TrendingUp className="w-5 h-5 text-emerald-400" />
+                      <div>
+                        <div className="text-[10px] text-slate-500 uppercase">Next Level</div>
+                        <div className="text-sm font-bold text-white capitalize">{studyPlan.nextQuizDifficulty}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {motivation && (
+                <div className="mt-6 p-6 bg-gradient-to-r from-indigo-500/10 to-fuchsia-500/10 rounded-[2rem] border border-indigo-500/20">
+                  <div className="flex items-center gap-3">
+                    <Heart className="w-5 h-5 text-fuchsia-400" />
+                    <p className="text-slate-300 font-medium italic">"{motivation}"</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
 
         <div className="space-y-6">
           <h3 className="font-black text-slate-500 flex items-center gap-3 uppercase tracking-[0.3em] text-xs px-2">

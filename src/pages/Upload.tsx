@@ -4,6 +4,7 @@ import { Upload as UploadIcon, File, CheckCircle2, AlertCircle, Loader2 } from '
 import axios from 'axios';
 import { motion } from 'motion/react';
 import { saveDocument } from '../lib/firebase';
+import { summarizeDocument } from '../services/ai';
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB - Client-side processing allows large files
 const ALLOWED_TYPES = ['application/pdf', 'text/plain', 'text/csv'];
@@ -13,7 +14,7 @@ export default function Upload() {
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { addDocument, user } = useStore();
+  const { addDocument, updateDocumentSummary, user } = useStore();
 
   const validateFile = (file: File): string | null => {
     // Check file size
@@ -110,10 +111,22 @@ export default function Upload() {
 
       await saveDocument(user.id, docData);
 
+      const tempId = Math.random().toString(36).substr(2, 9);
       addDocument({
-        id: Math.random().toString(36).substr(2, 9), // Local ID placeholder
+        id: tempId,
         ...docData
       });
+
+      if (extractedText.length > 100) {
+        try {
+          const sumResult = await summarizeDocument(file.name, extractedText);
+          if (sumResult.summary) {
+            updateDocumentSummary(tempId, sumResult.summary, sumResult.keyTopics || []);
+          }
+        } catch (sumErr) {
+          console.warn("Summary generation failed:", sumErr);
+        }
+      }
 
       setFile(null);
       setProgress(null);
