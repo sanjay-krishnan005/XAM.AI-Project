@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useStore } from '../store/useStore';
 import { generateQuiz, evaluateAnswer, generateRecommendations } from '../services/ai';
-import { Brain, CheckCircle2, XCircle, ChevronRight, Loader2, Award, Info, Sparkles, BookOpen, Target, TrendingUp, Heart, Clock } from 'lucide-react';
+import { Brain, CheckCircle2, XCircle, ChevronRight, Loader2, Award, Info, Sparkles, BookOpen, Target, TrendingUp, Heart, Clock, FileText, FolderOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { saveQuizResult, db } from '../lib/firebase';
 import { doc, updateDoc, increment, serverTimestamp } from 'firebase/firestore';
@@ -16,12 +16,41 @@ export default function Quiz() {
   const [evaluation, setEvaluation] = useState<any>(null);
   const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
   const [recStage, setRecStage] = useState<'results_only' | 'recommendations'>('results_only');
+  const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set(documents.map(d => d.id)));
+  const [showDocSelector, setShowDocSelector] = useState(false);
+
+  const toggleDoc = (docId: string) => {
+    const newSelected = new Set(selectedDocs);
+    if (newSelected.has(docId)) {
+      if (newSelected.size > 1) newSelected.delete(docId);
+    } else {
+      newSelected.add(docId);
+    }
+    setSelectedDocs(newSelected);
+  };
+
+  const selectAll = () => {
+    setSelectedDocs(new Set(documents.map(d => d.id)));
+  };
+
+  const deselectAll = () => {
+    setSelectedDocs(new Set());
+  };
+
+  const selectedDocuments = documents.filter(d => selectedDocs.has(d.id));
 
   const startQuiz = async () => {
-    if (documents.length === 0) return;
+    if (selectedDocuments.length === 0) return;
     setStage('loading');
     try {
-      const context = documents.map(d => d.content).join('\n\n').slice(0, 5000);
+      // Use selected documents only
+      const context = selectedDocuments.map(d => {
+        const summary = d.summary ? `Summary: ${d.summary}\n` : '';
+        const topics = d.keyTopics?.length ? `Topics: ${d.keyTopics.join(', ')}\n` : '';
+        const content = d.content.length > 2000 ? d.content.slice(0, 2000) + '[...truncated...]' : d.content;
+        return `=== ${d.name} ===\n${topics}${summary}Content:\n${content}`;
+      }).join('\n\n---\n\n');
+      
       const data = await generateQuiz(context, difficulty);
       setQuestions(data);
       setStage('active');
@@ -120,8 +149,52 @@ const handleAnswerSelect = async (option: string) => {
           disabled={documents.length === 0}
           className="w-full bg-white text-neutral-950 py-5 rounded-[2rem] font-black uppercase tracking-[0.2em] text-xs hover:scale-[1.03] active:scale-[0.97] transition-all shadow-2xl shadow-white/5 disabled:opacity-20 relative z-10"
         >
-          {documents.length === 0 ? 'Vectors Required' : 'Initialize Matrix'}
+          {documents.length === 0 ? 'Vectors Required' : `Initialize Matrix (${selectedDocuments.length} Selected)`}
         </button>
+
+        {documents.length > 1 && (
+          <div className="mt-8">
+            <button 
+              onClick={() => setShowDocSelector(!showDocSelector)}
+              className="flex items-center gap-2 text-xs font-bold text-indigo-400 uppercase tracking-widest hover:text-indigo-300 transition-colors"
+            >
+              <FolderOpen className="w-4 h-4" />
+              {showDocSelector ? 'Hide Materials' : 'Select Materials'}
+            </button>
+            
+            {showDocSelector && (
+              <motion.div 
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                className="mt-4 space-y-2 max-h-48 overflow-y-auto"
+              >
+                <div className="flex gap-2 text-[10px]">
+                  <button onClick={selectAll} className="text-indigo-400 hover:text-indigo-300">All</button>
+                  <button onClick={deselectAll} className="text-slate-500 hover:text-slate-400">None</button>
+                </div>
+                {documents.map(doc => (
+                  <button
+                    key={doc.id}
+                    onClick={() => toggleDoc(doc.id)}
+                    className={`w-full p-3 rounded-xl border text-left text-sm flex items-center gap-3 transition-all ${
+                      selectedDocs.has(doc.id)
+                        ? 'bg-indigo-500/20 border-indigo-400/50 text-white'
+                        : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'
+                    }`}
+                  >
+                    <div className={`w-5 h-5 rounded border flex items-center justify-center ${
+                      selectedDocs.has(doc.id) ? 'bg-indigo-500 border-indigo-500' : 'border-white/30'
+                    }`}>
+                      {selectedDocs.has(doc.id) && <CheckCircle2 className="w-4 h-4 text-white" />}
+                    </div>
+                    <FileText className="w-4 h-4" />
+                    <span className="truncate">{doc.name}</span>
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </div>
+        )}
       </div>
     );
   }

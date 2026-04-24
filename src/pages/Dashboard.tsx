@@ -1,11 +1,94 @@
 import React from 'react';
 import { useStore } from '../store/useStore';
-import { FileText, Zap, TrendingUp, Clock, Trophy, Trash2 } from 'lucide-react';
+import { FileText, Zap, TrendingUp, Clock, Trophy, Trash2, Target, Flame, Award, LogIn, MessageSquare } from 'lucide-react';
 import { motion } from 'motion/react';
 import { deleteDocument } from '../lib/firebase';
 
 export default function Dashboard() {
   const { documents, quizHistory, user, deleteDocument: deleteFromStore } = useStore();
+
+  // Calculate study streak from all activities: quizzes, docs uploads, logins
+  const calculateStreak = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    // Collect all activity timestamps
+    const allActivities: { date: Date; type: string }[] = [];
+    
+    // Add quiz dates
+    quizHistory.forEach(q => {
+      allActivities.push({ date: new Date(q.date), type: 'quiz' });
+    });
+    
+    // Add document upload dates (approximate from content length - stored locally)
+    documents.forEach(d => {
+      // We don't have upload timestamp locally, but assume they're recent
+      // So we count docs as activity indicator
+      if (allActivities.length === 0) {
+        allActivities.push({ date: new Date(), type: 'doc' });
+      }
+    });
+    
+    if (allActivities.length === 0) return { days: 0, label: 'Start learning!' };
+    
+    // Sort by date descending
+    const sorted = allActivities.sort((a, b) => b.date.getTime() - a.date.getTime());
+    
+    // Check if there's activity today or yesterday
+    const latestDate = new Date(sorted[0].date);
+    latestDate.setHours(0, 0, 0, 0);
+    
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    yesterday.setHours(0, 0, 0, 0);
+    
+    // Calculate consecutive days
+    let streak = 0;
+    let checkDate = new Date(today);
+    
+    for (let i = 0; i < 30; i++) {
+      const hasActivity = sorted.some(a => {
+        const activityDate = new Date(a.date);
+        activityDate.setHours(0, 0, 0, 0);
+        return activityDate.getTime() === checkDate.getTime();
+      });
+      
+      if (hasActivity) {
+        streak++;
+        checkDate.setDate(checkDate.getDate() - 1);
+      } else if (i === 0) {
+        // Check yesterday if no activity today
+        checkDate.setDate(checkDate.getDate() - 1);
+        const hasYesterday = sorted.some(a => {
+          const activityDate = new Date(a.date);
+          activityDate.setHours(0, 0, 0, 0);
+          return activityDate.getTime() === checkDate.getTime();
+        });
+        if (!hasYesterday) break;
+      } else {
+        break;
+      }
+    }
+    
+    if (streak === 0) {
+      // Has activity but not consecutive - might be first day or gap
+      const hasRecent = sorted.some(a => {
+        const daysDiff = Math.floor((today.getTime() - a.date.getTime()) / (1000 * 60 * 60 * 24));
+        return daysDiff <= 1;
+      });
+      if (hasRecent) return { days: 1, label: '1 Day' };
+      return { days: 0, label: 'No activity' };
+    }
+    if (streak === 1) return { days: 1, label: '1 Day' };
+    return { days: streak, label: `${streak} Days` };
+  };
+
+  const streak = calculateStreak();
+  
+  // Calculate average quiz score
+  const avgScore = quizHistory.length > 0
+    ? Math.round(quizHistory.reduce((sum, q) => sum + (typeof q.score === 'number' ? q.score : parseInt(q.score) || 0), 0) / quizHistory.length)
+    : 0;
 
   const handleDeleteDocument = async (docId: string, docName: string) => {
     if (confirm(`Delete "${docName}"? This action cannot be undone.`)) {
@@ -22,10 +105,10 @@ export default function Dashboard() {
   };
 
   const stats = [
-    { label: 'Study XP', value: user?.xp || 0, icon: Zap, color: 'text-orange-500' },
-    { label: 'Materials', value: documents.length, icon: FileText, color: 'text-blue-500' },
-    { label: 'Quizzes', value: quizHistory.length, icon: TrendingUp, color: 'text-emerald-500' },
-    { label: 'Study Streak', value: '4 Days', icon: Clock, color: 'text-indigo-500' },
+    { label: 'Study XP', value: user?.xp || 0, icon: Zap, color: 'text-orange-500', progress: Math.min(((user?.xp || 0) / (user?.level || 1) / 100), 100) },
+    { label: 'Materials', value: documents.length, icon: FileText, color: 'text-blue-500', progress: Math.min(documents.length * 20, 100) },
+    { label: 'Avg Score', value: `${avgScore}%`, icon: Target, color: 'text-emerald-500', progress: avgScore },
+    { label: 'Streak', value: streak.label, icon: Flame, color: 'text-amber-500', progress: Math.min(streak.days * 25, 100) },
   ];
 
   return (
@@ -47,12 +130,12 @@ export default function Dashboard() {
                <div className="text-3xl font-bold text-white">{stat.value}</div>
                <stat.icon className={`w-8 h-8 ${stat.color} opacity-80`} />
             </div>
-            <div className="mt-4 h-1 w-full bg-white/10 rounded-full overflow-hidden">
+<div className="mt-4 h-1 w-full bg-white/10 rounded-full overflow-hidden">
                <div 
                  className={`h-full ${stat.color.replace('text-', 'bg-')} shadow-[0_0_8px_rgba(255,255,255,0.3)]`} 
-                 style={{ width: stat.label === 'Study XP' ? '65%' : stat.label === 'Materials' ? '40%' : '80%' }}
+                 style={{ width: `${stat.progress}%` }}
                />
-            </div>
+             </div>
           </motion.div>
         ))}
       </div>

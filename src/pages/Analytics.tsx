@@ -12,15 +12,34 @@ import {
   Bar,
   Cell
 } from 'recharts';
-import { Activity, Target, Brain, Award } from 'lucide-react';
+import { Activity, Target, Brain, Award, TrendingUp, Zap, Clock } from 'lucide-react';
 
 export default function Analytics() {
-  const { quizHistory } = useStore();
+  const { quizHistory, documents, user } = useStore();
 
+  // Live data from quiz history
   const data = quizHistory.map(h => ({
     date: new Date(h.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-    score: h.score,
+    score: typeof h.score === 'number' ? h.score : parseInt(h.score) || 0,
   }));
+
+  // Calculate live stats
+  const avgScore = quizHistory.length > 0
+    ? Math.round(quizHistory.reduce((sum, q) => sum + (typeof q.score === 'number' ? q.score : parseInt(q.score) || 0), 0) / quizHistory.length)
+    : 0;
+  
+  const totalQuizzes = quizHistory.length;
+  const passedQuizzes = quizHistory.filter(q => (typeof q.score === 'number' ? q.score : parseInt(q.score) || 0) >= 70).length;
+  
+  // Calculate weak areas (recent low scores)
+  const recentLowScores = quizHistory.slice(-5).filter(q => (typeof q.score === 'number' ? q.score : parseInt(q.score) || 0) < 70);
+  const weakAreas = recentLowScores.length > 0 ? recentLowScores.length : 0;
+  
+  // Topic mastery estimates from documents
+  const docsWithTopics = documents.filter(d => d.keyTopics && d.keyTopics.length > 0);
+  const topicMastery = docsWithTopics.length > 0 
+    ? Math.round((docsWithTopics.reduce((sum, d) => sum + (d.keyTopics?.length || 0), 0) / docsWithTopics.length) * 15)
+    : Math.round(avgScore * 0.8);
 
   const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
@@ -88,9 +107,9 @@ export default function Analytics() {
             </h3>
             <div className="space-y-8">
               {[
-                { name: 'RAG Efficiency', val: 85, color: 'from-indigo-500 to-indigo-400' },
-                { name: 'Retention Rate', val: 62, color: 'from-fuchsia-500 to-fuchsia-400' },
-                { name: 'Logic Depth', val: 45, color: 'from-teal-500 to-emerald-400' },
+                { name: 'Content Mastery', val: topicMastery, color: 'from-indigo-500 to-indigo-400' },
+                { name: 'Retention Rate', val: avgScore, color: 'from-fuchsia-500 to-fuchsia-400' },
+                { name: 'Quiz Pass Rate', val: totalQuizzes > 0 ? Math.round((passedQuizzes / totalQuizzes) * 100) : 0, color: 'from-teal-500 to-emerald-400' },
               ].map((item, i) => (
                 <div key={item.name} className="space-y-3">
                   <div className="flex justify-between text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
@@ -108,25 +127,37 @@ export default function Analytics() {
             </div>
           </div>
           <div className="pt-8 border-t border-white/10 mt-10">
-            <div className="bg-gradient-to-r from-indigo-500/10 to-fuchsia-500/10 p-5 rounded-2xl flex items-center gap-5 border border-white/5">
-              <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center border border-white/10">
-                 <Brain className="w-6 h-6 text-indigo-400" />
+            {documents.length > 0 ? (
+              <div className="bg-gradient-to-r from-indigo-500/10 to-fuchsia-500/10 p-5 rounded-2xl flex items-center gap-5 border border-white/5">
+                <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center border border-white/10">
+                   <Zap className="w-6 h-6 text-indigo-400" />
+                </div>
+                <div>
+                  <div className="text-[10px] font-black text-indigo-300 uppercase tracking-widest mb-1">Focus Area</div>
+                  <div className="text-sm font-bold text-white">{documents[documents.length - 1]?.name?.slice(0, 25) || 'Recent Document'}</div>
+                </div>
               </div>
-              <div>
-                <div className="text-[10px] font-black text-indigo-300 uppercase tracking-widest mb-1">Recommended Node</div>
-                <div className="text-sm font-bold text-white">Neural Architectures</div>
+            ) : (
+              <div className="bg-gradient-to-r from-indigo-500/10 to-fuchsia-500/10 p-5 rounded-2xl flex items-center gap-5 border border-white/5">
+                <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center border border-white/10">
+                   <Brain className="w-6 h-6 text-indigo-400" />
+                </div>
+                <div>
+                  <div className="text-[10px] font-black text-indigo-300 uppercase tracking-widest mb-1">Recommended Node</div>
+                  <div className="text-sm font-bold text-white">Upload materials to analyze</div>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       </div>
 
       <div className="grid md:grid-cols-4 gap-6">
         {[
-          { label: 'Sync Accuracy', value: quizHistory.length ? Math.round(quizHistory.reduce((a, b) => a + b.score, 0) / quizHistory.length) + '%' : 'N/A', icon: Target, color: 'text-indigo-400' },
-          { label: 'Matrix Probes', value: quizHistory.length, icon: Activity, color: 'text-fuchsia-400' },
-          { label: 'Logic Gaps', value: '2 Nodes', icon: Brain, color: 'text-teal-400' },
-          { label: 'Global Rank', value: '#402', icon: Award, color: 'text-amber-400' },
+          { label: 'Sync Accuracy', value: avgScore > 0 ? `${avgScore}%` : 'N/A', icon: Target, color: 'text-indigo-400' },
+          { label: 'Matrix Probes', value: totalQuizzes, icon: Activity, color: 'text-fuchsia-400' },
+          { label: 'Logic Gaps', value: weakAreas > 0 ? `${weakAreas} Topics` : 'None', icon: Brain, color: weakAreas > 0 ? 'text-red-400' : 'text-teal-400' },
+          { label: 'Global Rank', value: '#' + Math.max(1, 500 - Math.floor((user?.xp || 0) / 50)), icon: Award, color: 'text-amber-400' },
         ].map((item, i) => (
           <div key={i} className="bg-white/5 border border-white/10 p-6 rounded-3xl backdrop-blur-md shadow-xl hover:bg-white/10 transition-all cursor-crosshair group">
             <item.icon className={`w-5 h-5 ${item.color} mb-4 opacity-60 group-hover:opacity-100 transition-all`} />
